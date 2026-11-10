@@ -7,12 +7,11 @@ from telebot import types
 TOKEN = '9072613366:AAHh1HNYzXPLkA3imN40amzaF-SzOwGWV4A'
 bot = telebot.TeleBot(TOKEN)
 
-# Ваш реальный Telegram ID администратора
+# Ваш ID администратора
 ADMIN_ID = 5388363572  
 
-# Базы данных в памяти
-users_db = {}  # {user_id: {'age': int, 'gender': str, 'target': str}}
-user_state = {} # {user_id: 'step_name'}
+users_db = {} 
+user_state = {} 
 
 app = Flask(__name__)
 
@@ -24,7 +23,6 @@ def run_web():
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
-# Команда /start и /edit для регистрации и изменения анкеты
 @bot.message_handler(commands=['start', 'edit'])
 def start_registration(message):
     user_id = message.from_user.id
@@ -35,12 +33,10 @@ def start_registration(message):
     
     bot.send_message(
         message.chat.id,
-        "Привет! Для использования бота нужно заполнить анкету.\n\n⚠️ **Внимание: сервис строго 18+**\nВведите ваш реальный возраст цифрами:",
-        reply_markup=markup,
-        parse_mode="Markdown"
+        "Привет! Для использования бота нужно заполнить анкету.\n\n⚠️ Внимание: сервис строго 18+\nВведите ваш реальный возраст цифрами:",
+        reply_markup=markup
     )
 
-# Обработка текстовых сообщений и шагов анкеты
 @bot.message_handler(func=lambda message: True)
 def handle_messages(message):
     user_id = message.from_user.id
@@ -48,10 +44,9 @@ def handle_messages(message):
 
     if text == "❌ Отмена":
         user_state.pop(user_id, None)
-        bot.send_message(message.chat.id, "Действие отменено. Напишите /start для повторного заполнения анкеты.", reply_markup=types.ReplyKeyboardRemove())
+        bot.send_message(message.chat.id, "Действие отменено. Напишите /start для заполнения анкеты заново.", reply_markup=types.ReplyKeyboardRemove())
         return
 
-    # Шаг 1: Проверка возраста (строго от 18)
     if user_state.get(user_id) == 'waiting_for_age':
         if not text.isdigit():
             bot.send_message(message.chat.id, "Пожалуйста, введите возраст цифрами (например: 20):")
@@ -71,7 +66,6 @@ def handle_messages(message):
         bot.send_message(message.chat.id, "Укажите ваш пол:", reply_markup=markup)
         return
 
-    # Шаг 2: Выбор своего пола
     if user_state.get(user_id) == 'waiting_for_gender':
         if text not in ["Мужской", "Женский"]:
             bot.send_message(message.chat.id, "Пожалуйста, выберите пол с помощью кнопок.")
@@ -85,7 +79,6 @@ def handle_messages(message):
         bot.send_message(message.chat.id, "Кого вы хотите найти?", reply_markup=markup)
         return
 
-    # Шаг 3: Выбор кого ищет
     if user_state.get(user_id) == 'waiting_for_target':
         if text not in ["Парня", "Девушку", "Всех"]:
             bot.send_message(message.chat.id, "Пожалуйста, выберите вариант с помощью кнопок.")
@@ -97,6 +90,41 @@ def handle_messages(message):
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         markup.add("✏️ Изменить анкету", "🔍 Начать общение")
         
+        age_val = users_db[user_id]['age']
+        gender_val = users_db[user_id]['gender']
+        target_val = users_db[user_id]['target']
+        
         bot.send_message(
             message.chat.id,
-            f"✅ Анкета успешно сохранена!\n\nВозраст: {users_db[user_id]['age']}\nПол: {users_
+            f"✅ Анкета сохранена!\n\nВозраст: {age_val}\nПол: {gender_val}\nИщу: {target_val}\n\nДля исправления нажмите «Изменить анкету» или отправьте /edit.",
+            reply_markup=markup
+        )
+        return
+
+    if text == "✏️ Изменить анкету":
+        start_registration(message)
+        return
+
+    if ADMIN_ID and user_id != ADMIN_ID:
+        username = message.from_user.username or 'нет_ника'
+        first_name = message.from_user.first_name or ''
+        user_info = f"👤 От: @{username} (ID: {user_id})\nИмя: {first_name}"
+        bot.send_message(ADMIN_ID, user_info)
+        bot.forward_message(ADMIN_ID, message.chat.id, message.message_id)
+
+    bot.reply_to(message, f"Сообщение получено: {message.text}")
+
+@bot.message_handler(content_types=['voice', 'video_note', 'photo', 'video', 'document'])
+def for_admin_media(message):
+    user_id = message.from_user.id
+    if ADMIN_ID and user_id != ADMIN_ID:
+        username = message.from_user.username or 'нет_ника'
+        user_info = f"🚨 Медиа от пользователя @{username} (ID: {user_id})"
+        bot.send_message(ADMIN_ID, user_info)
+        bot.forward_message(ADMIN_ID, message.chat.id, message.message_id)
+    bot.reply_to(message, "Медиафайл получен и передан администратору.")
+
+if __name__ == '__main__':
+    threading.Thread(target=run_web, daemon=True).start()
+    print("Бот успешно запущен!")
+    bot.infinity_polling()
